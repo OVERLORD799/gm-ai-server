@@ -7,7 +7,8 @@ GPU: NVIDIA L40S 48GB，OS: Ubuntu 22.04。
 
 | 服务 | 端口 | supervisord 程序名 | 说明 |
 |:-----|:----:|:-------------------|:-----|
-| VLM | `:8080` | `vlm-service` | Qwen2.5-VL-7B 4-bit + FastAPI `/analyze` |
+| VLM (bnb) | `:8080` | `vlm-service` | Qwen2.5-VL-7B bitsandbytes 4-bit + FastAPI `/analyze` |
+| VLM (AWQ) | `:8083` | `vlm-awq-service` | Qwen2.5-VL-7B AWQ 4-bit + FastAPI `/analyze` |
 | Perception | `:8082` | `perception-service` | GDINO-base + SAM2-hiera-small，`/ground`、`/track` |
 
 ## 部署
