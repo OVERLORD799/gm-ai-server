@@ -26,9 +26,15 @@ SAFETY_SYSTEM_PROMPT = (
     '"risk_type": "static" or "dynamic" or "functional" or "none", '
     '"risk_confidence": 0.0-1.0, '
     '"explanation": "brief safety assessment", '
-    '"suggested_action": "continue" or "slow_down" or "replan" or "stop"}\n'
-    "Risk types: static=spatial conflict, dynamic=motion danger, "
-    "functional=tool misuse. Be specific about what you see."
+    '"suggested_action": "continue" or "slow_down" or "replan" or "stop"}\n\n'
+    "Risk types:\n"
+    "- static: spatial conflict (hand too close to robot, object in wrong place)\n"
+    "- dynamic: motion danger (fast-moving hand, TTC below threshold)\n"
+    "- functional: tool/part misuse (misaligned grip, part dropped outside slot, "
+    "gripper holding nothing, part fallen off table)\n\n"
+    "Examples of functional risk: robot gripper is empty but moving to place; "
+    "a part is visible on the floor instead of in the target bin; "
+    "the gripper is holding a part at an odd angle."
 )
 
 def _parse_json(text: str) -> dict:
