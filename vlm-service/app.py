@@ -2,7 +2,7 @@
 """VLM service — structured JSON safety output (G1–G4)."""
 from __future__ import annotations
 
-import base64, io, json, os, re, time
+import base64, io, json, os, re, time, threading
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -16,7 +16,7 @@ from qwen_vl_utils import process_vision_info
 MODEL_ID = os.environ.get("VLM_MODEL_ID", "Qwen/Qwen2.5-VL-7B-Instruct")
 PORT = int(os.environ.get("VLM_PORT", "8080"))
 
-_model = None; _processor = None
+_model = None; _processor = None; _model_lock = threading.Lock()
 
 SAFETY_SYSTEM_PROMPT = (
     "You are a robot safety monitor for a pick-and-place workcell. "
@@ -114,7 +114,7 @@ def analyze(req: AnalyzeRequest):
         padding=True, return_tensors="pt",
     ).to(_model.device)
     t0 = time.time()
-    with torch.inference_mode():
+    with _model_lock, torch.inference_mode():
         out_ids = _model.generate(**inputs, max_new_tokens=256)
     trimmed = [o[len(i):] for i, o in zip(inputs.input_ids, out_ids)]
     response = _processor.batch_decode(
