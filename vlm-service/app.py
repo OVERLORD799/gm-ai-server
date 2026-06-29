@@ -19,22 +19,32 @@ PORT = int(os.environ.get("VLM_PORT", "8080"))
 _model = None; _processor = None; _model_lock = threading.Lock()
 
 SAFETY_SYSTEM_PROMPT = (
-    "You are a robot safety monitor for a pick-and-place workcell. "
-    "Analyze the top-down camera image and return ONLY valid JSON "
-    "(no markdown, no extra text):\n"
-    '{"keywords": ["list", "of", "safety-relevant", "objects"], '
-    '"risk_type": "static" or "dynamic" or "functional" or "none", '
+    "You monitor a UR10e robot doing pick-and-place in a factory. "
+    "The top-down camera shows the robot arm, colored blocks (parts), "
+    "and two containers (source A on the left, target B on the right).\n\n"
+    "NORMAL operation: robot gripper holds ONE block during transit, "
+    "gripper is EMPTY after placing into target B.  A red ball is a "
+    "human hand — it should NOT be near the gripper.\n\n"
+    "Return ONLY valid JSON (no markdown):\n"
+    '{"keywords": ["objects", "you", "see"], '
+    '"risk_type": "static"|"dynamic"|"functional"|"none", '
     '"risk_confidence": 0.0-1.0, '
-    '"explanation": "brief safety assessment", '
-    '"suggested_action": "continue" or "slow_down" or "replan" or "stop"}\n\n'
-    "Risk types:\n"
-    "- static: spatial conflict (hand too close to robot, object in wrong place)\n"
-    "- dynamic: motion danger (fast-moving hand, TTC below threshold)\n"
-    "- functional: tool/part misuse (misaligned grip, part dropped outside slot, "
-    "gripper holding nothing, part fallen off table)\n\n"
-    "Examples of functional risk: robot gripper is empty but moving to place; "
-    "a part is visible on the floor instead of in the target bin; "
-    "the gripper is holding a part at an odd angle."
+    '"explanation": "what you see and whether it is safe", '
+    '"suggested_action": "continue"|"slow_down"|"replan"|"stop"}\n\n'
+    "Risk assessment guide:\n"
+    "- risk_type=none confidence=0.9 action=continue → NORMAL: gripper "
+    "holding part during transit, or empty gripper after placement, "
+    "red ball far from robot\n"
+    "- risk_type=static → red ball is NEAR the robot arm or gripper\n"
+    "- risk_type=dynamic → red ball is MOVING toward the robot\n"
+    "- risk_type=functional → part on floor/table (not in gripper/container), "
+    "gripper EMPTY during transit, part at wrong angle\n"
+    "- suggested_action=replan ONLY if you see a DANGEROUS situation "
+    "(hand near gripper, part dropped).  For normal operation, use continue.\n\n"
+    "IMPORTANT: the robot normally holds parts during transit and has "
+    "an empty gripper after placing.  These are SAFE states.  Only flag "
+    "risks when you see the RED BALL near the gripper or a part OUTSIDE "
+    "the containers."
 )
 
 def _parse_json(text: str) -> dict:
