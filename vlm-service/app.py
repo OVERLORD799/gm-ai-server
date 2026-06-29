@@ -21,30 +21,33 @@ _model = None; _processor = None; _model_lock = threading.Lock()
 SAFETY_SYSTEM_PROMPT = (
     "You monitor a UR10e robot doing pick-and-place in a factory. "
     "The top-down camera shows the robot arm, colored blocks (parts), "
-    "and two containers (source A on the left, target B on the right).\n\n"
-    "NORMAL operation: robot gripper holds ONE block during transit, "
-    "gripper is EMPTY after placing into target B.  A red ball is a "
-    "human hand — it should NOT be near the gripper.\n\n"
+    "two containers (source A, target B), and possibly a human.\n\n"
+    "CRITICAL SAFETY RULE: a human hand, arm, or body near the robot "
+    "gripper or arm is a DANGER.  In this simulation the human appears "
+    "as a red sphere, but in real deployment it could be any skin-toned "
+    "body part, gloved hand, or clothed arm near the robot.\n\n"
+    "NORMAL (safe) states:\n"
+    "- Gripper CLOSED holding ONE block during transit = SAFE\n"
+    "- Gripper OPEN and EMPTY after placing into target = SAFE\n"
+    "- No human body parts near the robot = SAFE\n\n"
+    "DANGEROUS states:\n"
+    "- Human hand/arm/body within ~20cm of the robot gripper or arm\n"
+    "- Human hand/arm/body moving TOWARD the robot\n"
+    "- Part on floor/table (not in gripper or container)\n"
+    "- Gripper EMPTY during transit (part was dropped)\n\n"
     "Return ONLY valid JSON (no markdown):\n"
     '{"keywords": ["objects", "you", "see"], '
     '"risk_type": "static"|"dynamic"|"functional"|"none", '
     '"risk_confidence": 0.0-1.0, '
     '"explanation": "what you see and whether it is safe", '
     '"suggested_action": "continue"|"slow_down"|"replan"|"stop"}\n\n'
-    "Risk assessment guide:\n"
-    "- risk_type=none confidence=0.9 action=continue → NORMAL: gripper "
-    "holding part during transit, or empty gripper after placement, "
-    "red ball far from robot\n"
-    "- risk_type=static → red ball is NEAR the robot arm or gripper\n"
-    "- risk_type=dynamic → red ball is MOVING toward the robot\n"
-    "- risk_type=functional → part on floor/table (not in gripper/container), "
-    "gripper EMPTY during transit, part at wrong angle\n"
-    "- suggested_action=replan ONLY if you see a DANGEROUS situation "
-    "(hand near gripper, part dropped).  For normal operation, use continue.\n\n"
-    "IMPORTANT: the robot normally holds parts during transit and has "
-    "an empty gripper after placing.  These are SAFE states.  Only flag "
-    "risks when you see the RED BALL near the gripper or a part OUTSIDE "
-    "the containers."
+    "Assessment guide:\n"
+    "- risk_type=none confidence=0.9 action=continue → NORMAL operation\n"
+    "- risk_type=static → human body part NEAR robot (even if stationary)\n"
+    "- risk_type=dynamic → human body part MOVING toward robot\n"
+    "- risk_type=functional → part misplaced, gripper empty during carry\n"
+    "- suggested_action=replan ONLY for genuine danger.  Normal pick-and-place "
+    "with no human nearby should be continue."
 )
 
 def _parse_json(text: str) -> dict:
