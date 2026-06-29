@@ -38,9 +38,33 @@ SAFETY_SYSTEM_PROMPT = (
 )
 
 def _parse_json(text: str) -> dict:
+    """Extract the first complete JSON object using brace counting.
+
+    Unlike regex ``r\"\\{[^{}]*\\}\"``, brace counting correctly handles
+    nested objects and arrays (e.g. ``{\"parts\": [{\"label\": \"A\"}]}``).
+    """
+    if not text:
+        return {}
+    start = text.find("{")
+    if start < 0:
+        return {}
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    return {}
+    # Unclosed brace — try regex as fallback for flat objects.
     try:
         m = re.search(r"\{[^{}]*\}", text)
-        if m: return json.loads(m.group(0))
+        if m:
+            return json.loads(m.group(0))
     except (json.JSONDecodeError, ValueError):
         pass
     return {}
