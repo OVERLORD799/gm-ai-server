@@ -1,0 +1,121 @@
+name: gm-ai-server
+
+x-runtime: &runtime
+  restart: unless-stopped
+  gpus: all
+  shm_size: 2gb
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  volumes:
+    - ${GM_AI_DATA_DIR:-./data}:/data
+  environment: &common_environment
+    HF_HOME: /data/huggingface
+    HF_HUB_CACHE: /data/huggingface/hub
+    HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+    HF_HUB_DISABLE_XET: ${HF_HUB_DISABLE_XET:-1}
+    HF_HUB_DOWNLOAD_TIMEOUT: ${HF_HUB_DOWNLOAD_TIMEOUT:-120}
+    HF_HUB_MAX_WORKERS: ${HF_HUB_MAX_WORKERS:-2}
+    MODEL_DOWNLOAD_ATTEMPTS: ${MODEL_DOWNLOAD_ATTEMPTS:-30}
+    MODEL_DOWNLOAD_RETRY_DELAY_S: ${MODEL_DOWNLOAD_RETRY_DELAY_S:-5}
+    MODEL_DOWNLOAD_CONNECTIONS: ${MODEL_DOWNLOAD_CONNECTIONS:-8}
+    MODEL_DOWNLOAD_TRANSPORT: ${MODEL_DOWNLOAD_TRANSPORT:-aria2}
+    HF_XET_HIGH_PERFORMANCE: ${HF_XET_HIGH_PERFORMANCE:-0}
+    HF_XET_CLIENT_ENABLE_ADAPTIVE_CONCURRENCY: ${HF_XET_CLIENT_ENABLE_ADAPTIVE_CONCURRENCY:-0}
+    HF_XET_FIXED_DOWNLOAD_CONCURRENCY: ${HF_XET_FIXED_DOWNLOAD_CONCURRENCY:-8}
+    HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+    TORCH_HOME: /data/torch
+    XDG_CACHE_HOME: /data/cache
+    TRITON_CACHE_DIR: /data/triton
+    NVIDIA_VISIBLE_DEVICES: all
+    NVIDIA_DRIVER_CAPABILITIES: compute,utility
+  tmpfs:
+    - /tmp:size=512m,mode=1777
+
+services:
+  vlm:
+    <<: *runtime
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.vlm
+    image: gm-ai-server/vlm:cuda12.8
+    ports:
+      - 127.0.0.1:${VLM_HOST_PORT:-18080}:8080
+    environment:
+      <<: *common_environment
+      VLM_HOST: 0.0.0.0
+      VLM_PORT: "8080"
+      VLM_MODEL_ID: Qwen/Qwen2.5-VL-7B-Instruct-AWQ
+      VLM_MODEL_REVISION: 536a35794df8831aa814970ee8f89eff577e7718
+      VLM_API_MODEL_ID: Qwen2.5-VL-7B-Instruct-awq
+      VLM_QUANTIZATION: awq
+      VLM_AWQ_BACKEND: torch_fallback
+      VLM_MAX_IMAGE_BYTES: "16777216"
+      VLM_ALLOW_IMAGE_PATH: "0"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+  perception:
+    <<: *runtime
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.perception
+    image: gm-ai-server/perception:cuda12.8
+    ports:
+      - 127.0.0.1:${PERCEPTION_HOST_PORT:-18082}:8082
+    environment:
+      <<: *common_environment
+      PERCEPTION_HOST: 0.0.0.0
+      PERCEPTION_PORT: "8082"
+      PERCEPTION_EAGER_LOAD: "1"
+      PERCEPTION_MAX_IMAGE_BYTES: "16777216"
+      PERCEPTION_ALLOW_IMAGE_PATH: "0"
+      GDINO_MODEL_ID: IDEA-Research/grounding-dino-base
+      GDINO_MODEL_REVISION: 12bdfa3120f3e7ec7b434d90674b3396eccf88eb
+      SAM2_CONFIG: configs/sam2.1/sam2.1_hiera_s.yaml
+      SAM2_CHECKPOINT: /data/checkpoints/sam2.1_hiera_small.pt
+      SAM2_MODEL_ID: sam2.1_hiera_small.pt
+      SAM2_CHECKPOINT_SHA256: 6d1aa6f30de5c92224f8172114de081d104bbd23dd9dc5c58996f0cad5dc4d38
+      TRACK_CONTROL_DT_S: "0.02"
+      MAX_TRACK_SESSIONS: "128"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+  model-init:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.perception
+    image: gm-ai-server/perception:cuda12.8
+    restart: "no"
+    healthcheck:
+      disable: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ${GM_AI_DATA_DIR:-./data}:/data
+    environment:
+      <<: *common_environment
+      VLM_MODEL_ID: Qwen/Qwen2.5-VL-7B-Instruct-AWQ
+      VLM_MODEL_REVISION: 536a35794df8831aa814970ee8f89eff577e7718
+      GDINO_MODEL_ID: IDEA-Research/grounding-dino-base
+      GDINO_MODEL_REVISION: 12bdfa3120f3e7ec7b434d90674b3396eccf88eb
+      SAM2_REPO_ID: facebook/sam2.1-hiera-small
+      SAM2_MODEL_REVISION: ee5bba1d82bb8749febdf90f45e84b687142ba03
+      SAM2_CHECKPOINT: /data/checkpoints/sam2.1_hiera_small.pt
+      SAM2_CHECKPOINT_SHA256: 6d1aa6f30de5c92224f8172114de081d104bbd23dd9dc5c58996f0cad5dc4d38
+    command: ["python", "/opt/gm-ai-server/scripts/download_models.py", "--all"]

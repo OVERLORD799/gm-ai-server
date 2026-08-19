@@ -1,0 +1,36 @@
+ARG PYTORCH_IMAGE=pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime@sha256:7db0e1bf4b1ac274ea09cf6358ab516f8a5c7d3d0e02311bed445f7e236a5d80
+FROM ${PYTORCH_IMAGE}
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG SAM2_COMMIT=2b90b9f5ceec907a1c18123530e92e794ad901a4
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends aria2 ca-certificates curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/gm-ai-server
+COPY requirements/perception.txt /tmp/requirements-perception.txt
+RUN python -m pip install --no-cache-dir --upgrade pip==25.1.1 \
+    && python -m pip install --no-cache-dir -r /tmp/requirements-perception.txt
+RUN git clone --filter=blob:none https://github.com/facebookresearch/sam2.git /opt/sam2 \
+    && cd /opt/sam2 \
+    && git checkout --detach ${SAM2_COMMIT} \
+    && SAM2_BUILD_CUDA=0 python -m pip install --no-cache-dir --no-deps --no-build-isolation .
+
+COPY perception-service/app.py /opt/gm-ai-server/perception-service/app.py
+COPY scripts/healthcheck.py /opt/gm-ai-server/scripts/healthcheck.py
+COPY scripts/download_models.py /opt/gm-ai-server/scripts/download_models.py
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/data/huggingface \
+    TORCH_HOME=/data/torch \
+    XDG_CACHE_HOME=/data/cache \
+    SAM2_REPO_ROOT=/opt/sam2 \
+    PYTHONPATH=/opt/sam2 \
+    PERCEPTION_HOST=0.0.0.0 \
+    PERCEPTION_PORT=8082
+
+EXPOSE 8082
+HEALTHCHECK --interval=10s --timeout=5s --start-period=180s --retries=30 \
+    CMD ["python", "/opt/gm-ai-server/scripts/healthcheck.py", "--url", "http://127.0.0.1:8082/health", "--service", "perception", "--require-loaded"]
+CMD ["python", "/opt/gm-ai-server/perception-service/app.py"]

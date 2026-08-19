@@ -1,59 +1,86 @@
 #!/usr/bin/env python3
-"""Qwen2.5-VL-7B 4-bit smoke test."""
-import os
-import time
-from pathlib import Path
+"""HTTP smoke test for the deployed canonical VLM contract."""
+from __future__ import annotations
 
-os.environ.setdefault("HF_HOME", "/root/gpufree-data/huggingface")
+import argparse
+import base64
+import io
+import json
+from urllib.request import Request, urlopen
 
-import torch
 from PIL import Image
-from transformers import AutoProcessor, BitsAndBytesConfig, Qwen2_5_VLForConditionalGeneration
-from qwen_vl_utils import process_vision_info
 
-MODEL_ID = os.environ.get("VLM_MODEL_ID", "Qwen/Qwen2.5-VL-7B-Instruct")
-IMAGE_PATH = Path("/root/gpufree-data/vlm-service/sample.jpg")
 
-def main():
-    if not IMAGE_PATH.exists():
-        img = Image.new("RGB", (640, 480), color=(30, 120, 200))
-        img.save(IMAGE_PATH)
-
-    bnb = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_quant_type="nf4",
+def _post(url: str, payload: dict) -> dict:
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    request = Request(
+        url,
+        data=raw,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
     )
-    t0 = time.time()
-    print(f"Loading {MODEL_ID} (4-bit)...")
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb,
-        device_map="auto",
-        trust_remote_code=True,
+    with urlopen(request, timeout=180.0) as response:
+        value = json.loads(response.read().decode("utf-8"))
+    if type(value) is not dict:
+        raise RuntimeError("VLM response is not an object")
+    return value
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base-url", default="http://127.0.0.1:18080")
+    args = parser.parse_args()
+    buffer = io.BytesIO()
+    Image.new("RGB", (96, 64), color=(35, 80, 140)).save(buffer, format="PNG")
+    image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+    prompt = (
+        "Return ONLY this JSON object, with no Markdown or additional keys: "
+        '{"scene_summary":"synthetic blue test image","keywords":["blue image"],'
+        '"risk_type":"none","risk_confidence":0.9,"affected_entities":[],'
+        '"predicted_consequence":"none","prediction_horizon_s":2.0,'
+        '"time_to_risk_s":null,"explanation":"no hazard in synthetic image",'
+        '"suggested_action":"continue","spatial_hint":"none"}'
     )
-    processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
-    print(f"Loaded in {time.time()-t0:.1f}s")
+    value = _post(
+        args.base_url.rstrip("/") + "/analyze",
+        {
+            "image_b64": image_b64,
+            "prompt": prompt,
+            "request_id": "smoke-request",
+            "frame_id": "smoke-frame",
+            "model_id": "Qwen2.5-VL-7B-Instruct-awq",
+            "prompt_version": "five_stage_safety_v1",
+            "schema_version": "five_stage_vlm_v1",
+            "max_output_tokens": 256,
+        },
+    )
+    required = {
+        "ok",
+        "request_id",
+        "frame_id",
+        "scene_summary",
+        "keywords",
+        "risk_type",
+        "risk_confidence",
+        "affected_entities",
+        "predicted_consequence",
+        "prediction_horizon_s",
+        "time_to_risk_s",
+        "explanation",
+        "suggested_action",
+        "spatial_hint",
+        "prompt_version",
+        "schema_version",
+        "model_id",
+        "latency_ms",
+    }
+    if value.get("ok") is not True or not required.issubset(value):
+        raise RuntimeError("VLM response does not satisfy canonical V0-A")
+    if value.get("model_id") != "Qwen2.5-VL-7B-Instruct-awq":
+        raise RuntimeError("VLM model identity drift")
+    print(json.dumps(value, sort_keys=True, ensure_ascii=True))
+    print("smoke_ok")
 
-    messages = [{
-        "role": "user",
-        "content": [
-            {"type": "image", "image": str(IMAGE_PATH)},
-            {"type": "text", "text": "Describe this image in one sentence."},
-        ],
-    }]
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    image_inputs, video_inputs = process_vision_info(messages)
-    inputs = processor(text=[text], images=image_inputs, videos=video_inputs, padding=True, return_tensors="pt")
-    inputs = inputs.to(model.device)
-
-    t1 = time.time()
-    with torch.inference_mode():
-        out_ids = model.generate(**inputs, max_new_tokens=64)
-    trimmed = [o[len(i):] for i, o in zip(inputs.input_ids, out_ids)]
-    response = processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-    print(f"Inference {time.time()-t1:.2f}s")
-    print("Response:", response.strip())
 
 if __name__ == "__main__":
     main()

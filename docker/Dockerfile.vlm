@@ -1,0 +1,30 @@
+ARG PYTORCH_IMAGE=pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime@sha256:7db0e1bf4b1ac274ea09cf6358ab516f8a5c7d3d0e02311bed445f7e236a5d80
+FROM ${PYTORCH_IMAGE}
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN sed -i -E '/^deb .* (universe|multiverse)$/d; s/ main restricted$/ main/' /etc/apt/sources.list \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+    && apt-get install -y --no-install-recommends ca-certificates curl gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/gm-ai-server
+COPY requirements/vlm.txt /tmp/requirements-vlm.txt
+RUN python -m pip install --no-cache-dir --upgrade pip==25.1.1 \
+    && python -m pip install --no-cache-dir -r /tmp/requirements-vlm.txt
+
+COPY vlm-service/app.py /opt/gm-ai-server/vlm-service/app.py
+COPY scripts/healthcheck.py /opt/gm-ai-server/scripts/healthcheck.py
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/data/huggingface \
+    TORCH_HOME=/data/torch \
+    XDG_CACHE_HOME=/data/cache \
+    TRITON_CACHE_DIR=/data/triton \
+    VLM_HOST=0.0.0.0 \
+    VLM_PORT=8080
+
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=5s --start-period=180s --retries=30 \
+    CMD ["python", "/opt/gm-ai-server/scripts/healthcheck.py", "--url", "http://127.0.0.1:8080/health", "--service", "vlm"]
+CMD ["python", "/opt/gm-ai-server/vlm-service/app.py"]

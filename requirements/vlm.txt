@@ -1,0 +1,10 @@
+accelerate==1.6.0
+autoawq==0.2.9
+fastapi==0.115.12
+huggingface-hub==0.31.1
+pillow==11.2.1
+pydantic==2.11.4
+qwen-vl-utils==0.0.14
+transformers==4.51.3
+uvicorn[standard]==0.34.2
+zstandard==0.23.0
