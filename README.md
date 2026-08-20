@@ -98,7 +98,7 @@ docker compose ps
 
 Compose 会先执行一次 model-init；固定 revision 下载和 SAM2 哈希校验成功后才启动两个常驻服务。VLM 随后加载 AWQ 权重，感知服务启动时预热 GDINO/SAM2。首次启动取决于磁盘和网络，可能需要数分钟。
 
-`supervisord/` 保留的是旧服务器的非 Docker 路径配置，不参与本恢复栈；新服务器不要同时启用它和 Compose，以免重复占用端口与显存。
+`supervisord/` 只用于没有 Docker 的受管 GPU 容器，不能和 Compose 同时启用，以免重复占用端口与显存。
 
 ### 1.6 验证
 
@@ -132,6 +132,24 @@ GM_AI_DATA_DIR=/srv/gm-ai-server-data
 ~~~
 
 Compose 仍只绑定远端 127.0.0.1，避免服务暴露公网。在 Isaac/GMrobot 节点建立隧道：
+
+若受管 GPU 容器没有 Docker，可使用平台自带的 Conda 与 supervisord。Python 环境、模型、SAM2 源码、缓存和日志都应放在数据盘；仓库本身放在 `/root/gm-ai-server`：
+
+~~~bash
+conda create -y --override-channels \
+  -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main \
+  -p /root/gpufree-data/conda-envs/gm-ai python=3.11 pip
+
+PY=/root/gpufree-data/conda-envs/gm-ai/bin/python
+"$PY" -m pip install --index-url https://download.pytorch.org/whl/cu128 \
+  torch==2.7.0 torchvision==0.22.0
+"$PY" -m pip install -r requirements/vlm.txt -r requirements/perception.txt
+"$PY" -m pip install --no-deps --no-build-isolation /root/gpufree-data/sam2
+~~~
+
+设置 `HF_HOME=/root/gpufree-data/huggingface`、可信 `HF_ENDPOINT` 和固定模型环境变量后，运行 `scripts/download_models.py --all`。模型全部校验完成后，将两个 `supervisord/*.conf` 安装到平台的 supervisord include 目录。当前 gpufree 配置针对 L40S 使用 Triton AWQ；RTX 5090 Docker 配置仍使用兼容的 torch fallback。无论哪条路径，都必须先核对端口只监听 127.0.0.1，再执行两个真实 smoke。
+
+两种部署方式都通过以下隧道访问：
 
 ~~~bash
 ssh -N \
