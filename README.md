@@ -147,7 +147,15 @@ PY=/root/gpufree-data/conda-envs/gm-ai/bin/python
 "$PY" -m pip install --no-deps --no-build-isolation /root/gpufree-data/sam2
 ~~~
 
-设置 `HF_HOME=/root/gpufree-data/huggingface`、可信 `HF_ENDPOINT` 和固定模型环境变量后，运行 `scripts/download_models.py --all`。模型全部校验完成后，将两个 `supervisord/*.conf` 安装到平台的 supervisord include 目录。当前 gpufree 配置针对 L40S 使用 Triton AWQ；RTX 5090 Docker 配置仍使用兼容的 torch fallback。无论哪条路径，都必须先核对端口只监听 127.0.0.1，再执行两个真实 smoke。
+设置 `HF_HOME=/root/gpufree-data/huggingface`、可信 `HF_ENDPOINT` 和固定模型环境变量后，运行 `scripts/download_models.py --all`。模型全部校验完成后，将两个服务片段安装到平台的 supervisord include 目录。平台主进程不能在线重载时，可用仓库内的独立配置立即启动；实例下次重启后再由平台主进程接管：
+
+~~~bash
+install -m 0644 supervisord/vlm-service.conf /.gpufree/vlm-service.conf
+install -m 0644 supervisord/perception-service.conf /.gpufree/perception-service.conf
+/data/supervisord -d -c /root/gm-ai-server/supervisord/gm-ai-services.conf
+~~~
+
+当前 gpufree 配置针对 L40S 使用 Triton AWQ；RTX 5090 Docker 配置仍使用兼容的 torch fallback。无论哪条路径，都必须先核对端口只监听 127.0.0.1，再执行两个真实 smoke。避免同时运行独立 supervisor 与已加载同一片段的平台主 supervisor。
 
 两种部署方式都通过以下隧道访问：
 
